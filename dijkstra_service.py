@@ -1,20 +1,34 @@
 
 import csv
 import heapq
+import httpx
+
+def parse_csv_lines(lines) -> dict[str, list[tuple[str, int]]]:
+    graph = {}
+    reader = csv.DictReader(lines)
+    for row in reader:
+        from_city = row['from'].strip()
+        to_city = row['to'].strip()
+        km = int(row['km'].strip())
+
+        graph.setdefault(from_city, []).append((to_city, km))
+        graph.setdefault(to_city, []).append((from_city, km))
+    return graph
 
 def load_graph(csv_path: str) -> dict[str, list[tuple[str, int]]]:
-    graph = {}
     with open(csv_path, encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            from_city = row['from'].strip()
-            to_city = row['to'].strip()
-            km = int(row['km'].strip())
+        return parse_csv_lines(f)
 
-            graph.setdefault(from_city, []).append((to_city, km))
-            graph.setdefault(to_city, []).append((from_city, km))
-
-    return graph
+async def load_graph_from_registry_or_file(
+        registry_url: str, fallback_path: str) -> dict[str, list[tuple[str, int]]]:
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                response = await client.get(f"{registry_url}/cities.csv")
+                response.raise_for_status()
+            lines = response.text.splitlines()
+            return parse_csv_lines(lines)
+        except httpx.HTTPError:
+            return load_graph(fallback_path)
 
 def build_lookup(graph: dict[str, list[tuple[str, int]]]) -> dict[str, str]:
     return {city.casefold(): city for city in graph}
@@ -34,7 +48,7 @@ def next_hop(
     lookup = build_lookup(graph)
     from_city = lookup.get(from_city.casefold(), from_city)
     to_city = lookup.get(to_city.casefold(), to_city)
-    skip = {lookup.get(c.casefold(), c) for c in visited}
+    skip = {lookup.get(c.casefold(), c) for c in (visited or [])}
     online = (
         {lookup.get(c.casefold(), c) for c in online_nodes}
         if online_nodes is not None else None
@@ -110,8 +124,8 @@ def full_route(
 
 
 
-g = load_graph("cities.csv")
-route = full_route(g, "göteborg", "umeå", online_nodes={"Göteborg", "Malmö", "Jönköping", "Stockholm", "Sundsvall", "Umeå"})
-print(route)
+# g = load_graph("cities.csv")
+# route = full_route(g, "göteborg", "umeå", online_nodes={"Göteborg", "Malmö", "Jönköping", "Stockholm", "Sundsvall", "Umeå"})
+# print(route)
 
 
